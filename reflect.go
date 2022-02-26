@@ -1,6 +1,7 @@
 package gwasm
 
 import (
+	"fmt"
 	"reflect"
 	"syscall/js"
 )
@@ -78,4 +79,78 @@ func ValueFromStruct(Struct interface{}, skipZeroValues bool) js.Value {
 		}
 	}
 	return obj
+}
+
+func typedArrayNameSize(sliceOrArray interface{}) (TypedArray string, sizeOf uintptr) {
+	vt := reflect.TypeOf(sliceOrArray)
+	if vt.Kind() != reflect.Slice && vt.Kind() != reflect.Array {
+		panic("expected slice/array argument to JSTypedArray")
+	}
+	elem := vt.Elem()
+	sizeOf = elem.Size()
+	switch elem.String() {
+	case "float64":
+		TypedArray = "Float64Array"
+	case "float32":
+		TypedArray = "Float32Array"
+	case "int8":
+		TypedArray = "Int8Array"
+	case "int16":
+		TypedArray = "Int16Array"
+	case "int32":
+		TypedArray = "Int32Array"
+	case "int64":
+		TypedArray = "BigInt64Array"
+	case "uint8":
+		TypedArray = "Uint8Array"
+	case "uint16":
+		TypedArray = "Uint16Array"
+	case "uint32":
+		TypedArray = "Uint32Array"
+	case "uint64":
+		TypedArray = "BigUint64Array"
+	default:
+		panic("unsupported TypedArray Go slice/array type " + vt.Elem().String())
+	}
+	return TypedArray, sizeOf
+}
+
+// Debug prints JSON representation of underlying js.Value if found. Not for use
+// with common Go types.
+func Debug(a ...interface{}) {
+	for _, v := range a {
+		fmt.Print(debugs(v) + " ")
+	}
+	fmt.Println()
+}
+
+func stringify(jsv js.Value) string {
+	if !jsv.Truthy() {
+		return js.Global().Get("String").New(jsv).String()
+	}
+	return js.Global().Get("JSON").Call("stringify", jsv).String()
+}
+
+func debugs(a interface{}) string {
+	if s, ok := a.(string); ok {
+		return s
+	}
+	rv := reflect.ValueOf(a)
+	if rv.Kind() == reflect.Ptr && rv.IsNil() {
+		return "<nil>"
+	}
+	rv = reflect.Indirect(rv)
+	switch {
+	case rv.Type() == reflect.TypeOf(js.Value{}):
+		// interface is a js.Value.
+		return stringify(a.(js.Value))
+
+	case rv.Kind() == reflect.Struct:
+		if rv.NumField() == 1 && rv.Field(0).Type() == reflect.TypeOf(js.Value{}) {
+			// Single field struct of a js.Value, like most binded types in this package.
+			return stringify(rv.Field(0).Interface().(js.Value))
+		}
+		return stringify(ValueFromStruct(a, false))
+	}
+	return fmt.Sprintf("%+v", a)
 }
