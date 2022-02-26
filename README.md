@@ -1,2 +1,2 @@
 # gwasm
-Common utilities I find myself writing too often across Go WASM projects.
+Common utilities I find myself rewriting too often across Go WASM projects.
