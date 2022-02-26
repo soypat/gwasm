@@ -18,6 +18,8 @@ func AddScript(url, objName string, timeout time.Duration) {
 		panic("need greater-than zero timeout")
 	case strings.Contains(objName, " "):
 		panic("objName must be a javascript identifier (no spaces)")
+	case !js.Global().Get(objName).IsUndefined():
+		panic("objName is already defined in global space")
 	}
 	script := js.Global().Get("document").Call("createElement", "script")
 	script.Set("src", url)
