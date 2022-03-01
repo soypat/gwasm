@@ -15,9 +15,9 @@ func JSTypedArray(sliceOrArray interface{}) (js.Value, error) {
 	TypedArray, _ := typedArrayNameSize(sliceOrArray)
 	v := reflect.ValueOf(sliceOrArray)
 	len := v.Len()
-	dst := js.Global().Get(TypedArray).New(len)
+	array := js.Global().Get(TypedArray).New(len)
 	for i := 0; i < len; i++ {
-		dst.SetIndex(i, v.Index(i).Interface())
+		array.SetIndex(i, v.Index(i).Interface())
 	}
-	return dst, nil
+	return array, nil
 }
