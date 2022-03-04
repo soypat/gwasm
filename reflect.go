@@ -6,10 +6,6 @@ import (
 	"syscall/js"
 )
 
-type JSValuer interface {
-	JSValue() js.Value
-}
-
 // ValueFromStruct converts a struct with `js` field tags to
 // a javascript Object type with the non-nil fields set
 // to the struct's values.
@@ -67,7 +63,7 @@ func ValueFromStruct(Struct interface{}, skipZeroValues bool) js.Value {
 				obj.Set(tag, jsv)
 			}
 		case reflect.Interface:
-			if ifv, ok := fv.Interface().(JSValuer); ok {
+			if ifv, ok := fv.Interface().(js.Wrapper); ok {
 				obj.Set(tag, ifv.JSValue())
 			}
 		case reflect.Slice:
@@ -124,16 +120,28 @@ func Debug(a ...interface{}) {
 	fmt.Println()
 }
 
-func stringify(jsv js.Value) string {
-	if !jsv.Truthy() {
-		return js.Global().Get("String").New(jsv).String()
+func stringify(jsv js.Value) (str string) {
+	switch {
+	case jsv.Truthy():
+		str = js.Global().Get("JSON").Call("stringify", jsv).String()
+	case jsv.IsUndefined():
+		str = "undefined"
+	case jsv.IsNaN():
+		str = "NaN"
+	case jsv.IsNull():
+		str = "null"
+	default:
+		str = js.Global().Get("JSON").Call("stringify", jsv).String()
 	}
-	return js.Global().Get("JSON").Call("stringify", jsv).String()
+	return str
 }
 
 func debugs(a interface{}) string {
-	if s, ok := a.(string); ok {
-		return s
+	switch v := a.(type) {
+	case string:
+		return v
+	case js.Value:
+		return stringify(v)
 	}
 	rv := reflect.ValueOf(a)
 	if rv.Kind() == reflect.Ptr && rv.IsNil() {
@@ -141,16 +149,15 @@ func debugs(a interface{}) string {
 	}
 	rv = reflect.Indirect(rv)
 	switch {
-	case rv.Type() == reflect.TypeOf(js.Value{}):
-		// interface is a js.Value.
-		return stringify(a.(js.Value))
-
 	case rv.Kind() == reflect.Struct:
 		if rv.NumField() == 1 && rv.Field(0).Type() == reflect.TypeOf(js.Value{}) {
 			// Single field struct of a js.Value, like most binded types in this package.
 			return stringify(rv.Field(0).Interface().(js.Value))
 		}
 		return stringify(ValueFromStruct(a, false))
+	}
+	if v, ok := a.(js.Wrapper); ok {
+		return stringify(v.JSValue())
 	}
 	return fmt.Sprintf("%+v", a)
 }
