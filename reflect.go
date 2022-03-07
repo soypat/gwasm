@@ -2,7 +2,9 @@ package gwasm
 
 import (
 	"fmt"
+	"io"
 	"reflect"
+	"strconv"
 	"syscall/js"
 )
 
@@ -111,13 +113,19 @@ func typedArrayNameSize(sliceOrArray interface{}) (TypedArray string, sizeOf uin
 	return TypedArray, sizeOf
 }
 
-// Debug prints JSON representation of underlying js.Value if found. Not for use
-// with common Go types.
+var std io.Writer = console()
+
+// Debug prints JSON representation of underlying js.Value if found.
+// Not meant for use with common Go types.
 func Debug(a ...interface{}) {
 	for _, v := range a {
-		fmt.Print(debugs(v) + " ")
+		std.Write([]byte(debugs(v) + " "))
 	}
-	fmt.Println()
+	std.Write([]byte("\n"))
+}
+
+func SetOutput(w io.Writer) {
+	std = w
 }
 
 func stringify(jsv js.Value) (str string) {
@@ -125,11 +133,11 @@ func stringify(jsv js.Value) (str string) {
 	case jsv.Truthy():
 		str = js.Global().Get("JSON").Call("stringify", jsv).String()
 	case jsv.IsUndefined():
-		str = "undefined"
+		str = "<undefined>"
 	case jsv.IsNaN():
 		str = "NaN"
 	case jsv.IsNull():
-		str = "null"
+		str = "<null>"
 	default:
 		str = js.Global().Get("JSON").Call("stringify", jsv).String()
 	}
@@ -137,9 +145,14 @@ func stringify(jsv js.Value) (str string) {
 }
 
 func debugs(a interface{}) string {
+	// Type switch for most common types one might want to debug.
 	switch v := a.(type) {
 	case string:
 		return v
+	case int:
+		return strconv.Itoa(v)
+	case float64:
+		return strconv.FormatFloat(v, 'g', 12, 64)
 	case js.Value:
 		return stringify(v)
 	}
@@ -151,13 +164,22 @@ func debugs(a interface{}) string {
 	switch {
 	case rv.Kind() == reflect.Struct:
 		if rv.NumField() == 1 && rv.Field(0).Type() == reflect.TypeOf(js.Value{}) {
-			// Single field struct of a js.Value, like most binded types in this package.
+			// Single field struct of a js.Value. Likely a binded type.
 			return stringify(rv.Field(0).Interface().(js.Value))
+		}
+		if rv.NumField() == 0 {
+			break // No fields to print out.
 		}
 		return stringify(ValueFromStruct(a, false))
 	}
-	if v, ok := a.(js.Wrapper); ok {
+	// Common interface casting.
+	switch v := a.(type) {
+	case js.Wrapper:
 		return stringify(v.JSValue())
+	case error:
+		return v.Error()
+	case fmt.Stringer:
+		return v.String()
 	}
-	return fmt.Sprintf("%+v", a)
+	return "<unsupported type>"
 }
