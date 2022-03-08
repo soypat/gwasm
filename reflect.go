@@ -2,13 +2,11 @@ package gwasm
 
 import (
 	"fmt"
+	"io"
 	"reflect"
+	"strconv"
 	"syscall/js"
 )
-
-type JSValuer interface {
-	JSValue() js.Value
-}
 
 // ValueFromStruct converts a struct with `js` field tags to
 // a javascript Object type with the non-nil fields set
@@ -67,7 +65,7 @@ func ValueFromStruct(Struct interface{}, skipZeroValues bool) js.Value {
 				obj.Set(tag, jsv)
 			}
 		case reflect.Interface:
-			if ifv, ok := fv.Interface().(JSValuer); ok {
+			if ifv, ok := fv.Interface().(js.Wrapper); ok {
 				obj.Set(tag, ifv.JSValue())
 			}
 		case reflect.Slice:
@@ -120,25 +118,48 @@ func typedArrayNameSize(sliceOrArray interface{}) (TypedArray string, sizeOf uin
 	return TypedArray, sizeOf
 }
 
-// Debug prints JSON representation of underlying js.Value if found. Not for use
-// with common Go types.
+var std io.Writer = console()
+
+// Debug prints JSON representation of underlying js.Value if found.
+// Not meant for use with common Go types.
 func Debug(a ...interface{}) {
 	for _, v := range a {
-		fmt.Print(debugs(v) + " ")
+		std.Write([]byte(debugs(v) + " "))
 	}
-	fmt.Println()
+	std.Write([]byte("\n"))
 }
 
-func stringify(jsv js.Value) string {
-	if !jsv.Truthy() {
-		return js.Global().Get("String").New(jsv).String()
+func SetOutput(w io.Writer) {
+	std = w
+}
+
+func stringify(jsv js.Value) (str string) {
+	switch {
+	case jsv.Truthy():
+		str = js.Global().Get("JSON").Call("stringify", jsv).String()
+	case jsv.IsUndefined():
+		str = "<undefined>"
+	case jsv.IsNaN():
+		str = "NaN"
+	case jsv.IsNull():
+		str = "<null>"
+	default:
+		str = js.Global().Get("JSON").Call("stringify", jsv).String()
 	}
-	return js.Global().Get("JSON").Call("stringify", jsv).String()
+	return str
 }
 
 func debugs(a interface{}) string {
-	if s, ok := a.(string); ok {
-		return s
+	// Type switch for most common types one might want to debug.
+	switch v := a.(type) {
+	case string:
+		return v
+	case int:
+		return strconv.Itoa(v)
+	case float64:
+		return strconv.FormatFloat(v, 'g', 12, 64)
+	case js.Value:
+		return stringify(v)
 	}
 	rv := reflect.ValueOf(a)
 	if rv.Kind() == reflect.Ptr && rv.IsNil() {
@@ -146,16 +167,24 @@ func debugs(a interface{}) string {
 	}
 	rv = reflect.Indirect(rv)
 	switch {
-	case rv.Type() == reflect.TypeOf(js.Value{}):
-		// interface is a js.Value.
-		return stringify(a.(js.Value))
-
 	case rv.Kind() == reflect.Struct:
 		if rv.NumField() == 1 && rv.Field(0).Type() == reflect.TypeOf(js.Value{}) {
-			// Single field struct of a js.Value, like most binded types in this package.
+			// Single field struct of a js.Value. Likely a binded type.
 			return stringify(rv.Field(0).Interface().(js.Value))
+		}
+		if rv.NumField() == 0 {
+			break // No fields to print out.
 		}
 		return stringify(ValueFromStruct(a, false))
 	}
-	return fmt.Sprintf("%+v", a)
+	// Common interface casting.
+	switch v := a.(type) {
+	case js.Wrapper:
+		return stringify(v.JSValue())
+	case error:
+		return v.Error()
+	case fmt.Stringer:
+		return v.String()
+	}
+	return "<unsupported type>"
 }
