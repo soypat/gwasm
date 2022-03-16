@@ -25,7 +25,7 @@ func ValueFromStruct(Struct interface{}, skipZeroValues bool) js.Value {
 	}
 	vi := reflect.Indirect(v)
 	if vi.Kind() != reflect.Struct {
-		panic("expected struct input to objectify")
+		panic("expected struct input to ValueFromStruct, got " + vi.Kind().String())
 	}
 	obj := js.Global().Get("Object").New()
 	recordType := vi.Type()
@@ -75,7 +75,12 @@ func ValueFromStruct(Struct interface{}, skipZeroValues bool) js.Value {
 		case reflect.Slice:
 			arr := js.Global().Get("Array").New()
 			for idx := 0; idx < fv.Len(); idx++ {
-				arr.Call("push", ValueFromStruct(fv.Index(idx).Interface(), skipZeroValues))
+				sliceVal := fv.Index(idx)
+				if sliceVal.Kind() == reflect.Struct {
+					arr.Call("push", ValueFromStruct(sliceVal.Interface(), skipZeroValues))
+				} else {
+					arr.Call("push", sliceVal.Interface())
+				}
 			}
 			obj.Set(tag, arr)
 		}
