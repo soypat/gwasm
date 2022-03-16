@@ -44,12 +44,16 @@ func ValueFromStruct(Struct interface{}, skipZeroValues bool) js.Value {
 			continue
 		}
 		switch field.Type.Kind() {
+		case reflect.Bool:
+			obj.Set(tag, fv.Bool())
 		case reflect.Float64:
 			obj.Set(tag, fv.Float())
 		case reflect.String:
 			obj.Set(tag, fv.String())
 		case reflect.Int:
 			obj.Set(tag, fv.Int())
+		case reflect.Uint:
+			obj.Set(tag, fv.Uint())
 		case reflect.Ptr:
 			if fv.IsNil() {
 				break
