@@ -9,6 +9,10 @@ import (
 	"syscall/js"
 )
 
+type JSValuer interface {
+	JSValue() js.Value
+}
+
 // ValueFromStruct converts a struct with `js` field tags to
 // a javascript Object type with the non-nil fields set
 // to the struct's values.
@@ -41,12 +45,16 @@ func ValueFromStruct(Struct interface{}, skipZeroValues bool) js.Value {
 			continue
 		}
 		switch field.Type.Kind() {
+		case reflect.Bool:
+			obj.Set(tag, fv.Bool())
 		case reflect.Float64:
 			obj.Set(tag, fv.Float())
 		case reflect.String:
 			obj.Set(tag, fv.String())
 		case reflect.Int:
 			obj.Set(tag, fv.Int())
+		case reflect.Uint:
+			obj.Set(tag, fv.Uint())
 		case reflect.Ptr:
 			if fv.IsNil() {
 				break
@@ -66,7 +74,7 @@ func ValueFromStruct(Struct interface{}, skipZeroValues bool) js.Value {
 				obj.Set(tag, jsv)
 			}
 		case reflect.Interface:
-			if ifv, ok := fv.Interface().(js.Wrapper); ok {
+			if ifv, ok := fv.Interface().(JSValuer); ok {
 				obj.Set(tag, ifv.JSValue())
 			}
 		case reflect.Slice:
@@ -182,7 +190,7 @@ func debugs(a interface{}) string {
 	}
 	// Common interface casting.
 	switch v := a.(type) {
-	case js.Wrapper:
+	case JSValuer:
 		return stringify(v.JSValue())
 	case error:
 		return v.Error()
