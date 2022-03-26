@@ -140,6 +140,7 @@ func Debug(a ...interface{}) {
 	std.Write([]byte(b.String()))
 }
 
+// SetOutput sets the output writer of logging functions like Debug.
 func SetOutput(w io.Writer) {
 	std = w
 }
