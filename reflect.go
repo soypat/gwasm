@@ -5,6 +5,7 @@ import (
 	"io"
 	"reflect"
 	"strconv"
+	"strings"
 	"syscall/js"
 )
 
@@ -123,10 +124,12 @@ var std io.Writer = console()
 // Debug prints JSON representation of underlying js.Value if found.
 // Not meant for use with common Go types.
 func Debug(a ...interface{}) {
+	b := strings.Builder{}
 	for _, v := range a {
-		std.Write([]byte(debugs(v) + " "))
+		b.WriteString(debugs(v) + " ")
 	}
-	std.Write([]byte("\n"))
+	b.WriteByte('\n')
+	std.Write([]byte(b.String()))
 }
 
 func SetOutput(w io.Writer) {
