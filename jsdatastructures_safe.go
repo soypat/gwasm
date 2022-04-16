@@ -1,5 +1,5 @@
-//go:build safe
-// +build safe
+//go:build safe && js
+// +build safe,js
 
 package gwasm
 
