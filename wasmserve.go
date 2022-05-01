@@ -5,6 +5,7 @@ package gwasm
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -81,7 +82,7 @@ func NewWASMHandler(wasmDir string, subHandler http.HandlerFunc) (*WASMHandler, 
 	}
 	out, err := exec.Command("go", "env", "GOROOT").Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", err, string(out))
 	}
 	f := filepath.Join(strings.TrimSpace(string(out)), "misc", "wasm", "wasm_exec.js")
 	wsm.wasmexeccontent, err = readFile(f)
@@ -168,7 +169,7 @@ func (wsm *WASMHandler) buildWASM() error {
 	cmdBuild.Dir = wsm.wasmDir
 	out, err := cmdBuild.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("%w\n%s", err, string(out))
 	}
 	if len(out) > 0 {
 		wsm.log(out)
