@@ -48,17 +48,33 @@ const indexHTML = `<!DOCTYPE html>
 
 // WASMHandler serves a WASM application. Implements http.Handler interface.
 type WASMHandler struct {
-	IndexHTML       string
-	WASMReload      bool
-	startTime       time.Time
-	wasmDir         string
-	wasmcontent     []byte
-	wasmModTime     time.Time
-	wasmexeccontent []byte
-	tmpOutputDir    string
-	output          io.Writer
-	waitChannel     chan struct{}
-	subHandler      http.HandlerFunc
+	// Compiler is the tool used to compile the WASM binary. Can be "go", "tinygo".
+	Compiler string
+	// IndexHTML is the html served to the user when loading the application. Should contain
+	// the WASM bootstrap javascript to correctly load the WASM binary.
+	IndexHTML string
+	// WASMReload set to true recompiles the WASM application on every request.
+	WASMReload bool
+	// WASMDir points to the directory with the package/module with the Go WASM application.
+	// If WASMDir is the empty string, it will serve the WASMApplication without compiling.
+	WASMDir string
+	// WASMApplication is the compiled WASM binary data as output by the go tool.
+	WASMApplication []byte
+	// Bootloader script. Filename can be found in a go installation by running
+	//  out, err := exec.Command(wsm.Compiler, "env", "GOROOT").Output()
+	//  if err != nil {
+	//  	return nil, fmt.Errorf("%w: %s", err, string(out))
+	//  }
+	//  filename := filepath.Join(strings.TrimSpace(string(out)), "misc", "wasm", "wasm_exec.js")
+	WASMExecContent []byte
+
+	wasmModTime time.Time
+
+	tmpOutputDir string
+	output       io.Writer
+	startTime    time.Time
+	waitChannel  chan struct{}
+	subHandler   http.HandlerFunc
 }
 
 // NewWASMHandler returns a handler which does basically the same thing as https://github.com/hajimehoshi/wasmserve.
@@ -73,19 +89,23 @@ type WASMHandler struct {
 //  http.Handle("/", wsm)
 //  log.Fatal(http.ListenAndServe(":8080", nil))
 func NewWASMHandler(wasmDir string, subHandler http.HandlerFunc) (*WASMHandler, error) {
+	if wasmDir == "" {
+		wasmDir = "."
+	}
 	var err error
 	wsm := &WASMHandler{
-		wasmDir:     wasmDir,
+		Compiler:    "go",
+		WASMDir:     wasmDir,
 		startTime:   time.Now(),
 		waitChannel: make(chan struct{}),
 		subHandler:  subHandler,
 	}
-	out, err := exec.Command("go", "env", "GOROOT").Output()
+	out, err := exec.Command(wsm.Compiler, "env", "GOROOT").Output()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", err, string(out))
 	}
 	f := filepath.Join(strings.TrimSpace(string(out)), "misc", "wasm", "wasm_exec.js")
-	wsm.wasmexeccontent, err = readFile(f)
+	wsm.WASMExecContent, err = readFile(f)
 	if err != nil {
 		return nil, err
 	}
@@ -122,21 +142,21 @@ func (wsm *WASMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "index.html", time.Now(), strings.NewReader(wsm.IndexHTML))
 		return
 	case "wasm_exec.js":
-		http.ServeContent(w, r, "wasm_exec.js", wsm.startTime, bytes.NewReader(wsm.wasmexeccontent))
+		http.ServeContent(w, r, "wasm_exec.js", wsm.startTime, bytes.NewReader(wsm.WASMExecContent))
 		return
 	case "main.wasm":
-		if wsm.WASMReload {
+		if wsm.WASMReload && wsm.WASMDir != "" {
 			err := wsm.buildWASM()
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
-		if len(wsm.wasmcontent) == 0 {
+		if len(wsm.WASMApplication) == 0 {
 			http.Error(w, "no wasm content", http.StatusInternalServerError)
 			return
 		}
-		http.ServeContent(w, r, "main.wasm", wsm.wasmModTime, bytes.NewReader(wsm.wasmcontent))
+		http.ServeContent(w, r, "main.wasm", wsm.wasmModTime, bytes.NewReader(wsm.WASMApplication))
 		return
 	case "_wait":
 		wsm.waitForUpdate(w, r)
@@ -163,10 +183,10 @@ func (wsm *WASMHandler) setTmpOutputDir() (err error) {
 func (wsm *WASMHandler) buildWASM() error {
 	buildName := filepath.Join(wsm.tmpOutputDir, "main.wasm")
 	args := []string{"build", "-o", buildName}
-	wsm.log([]byte("go " + strings.Join(args, " ")))
-	cmdBuild := exec.Command("go", args...)
+	wsm.log([]byte(wsm.Compiler + " " + strings.Join(args, " ")))
+	cmdBuild := exec.Command(wsm.Compiler, args...)
 	cmdBuild.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
-	cmdBuild.Dir = wsm.wasmDir
+	cmdBuild.Dir = wsm.WASMDir
 	out, err := cmdBuild.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w\n%s", err, string(out))
@@ -178,7 +198,7 @@ func (wsm *WASMHandler) buildWASM() error {
 	if err != nil {
 		return err
 	}
-	wsm.wasmcontent = wasmContent
+	wsm.WASMApplication = wasmContent
 	wsm.wasmModTime = time.Now()
 	return nil
 }
